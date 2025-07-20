@@ -8,12 +8,20 @@ def get_google_sheets_client():
     """
     Setup and return Google Sheets client using service account credentials.
     """
-    # Get credentials from environment variable
+    # Try to get credentials from environment variable first
     creds_json = os.environ.get('GOOGLE_SHEETS_CREDENTIALS_JSON')
-    if not creds_json:
-        raise ValueError("GOOGLE_SHEETS_CREDENTIALS_JSON environment variable not set")
     
-    creds_dict = json.loads(creds_json)
+    if creds_json:
+        # Use environment variable
+        creds_dict = json.loads(creds_json)
+    else:
+        # Try to load from google-credentials.json file
+        creds_file_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'google-credentials.json')
+        if os.path.exists(creds_file_path):
+            with open(creds_file_path, 'r') as f:
+                creds_dict = json.load(f)
+        else:
+            raise ValueError("No Google credentials found. Please set GOOGLE_SHEETS_CREDENTIALS_JSON environment variable or ensure google-credentials.json exists.")
     
     # Define scope for Google Sheets API
     scope = ['https://spreadsheets.google.com/feeds',

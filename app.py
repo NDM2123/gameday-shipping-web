@@ -1,5 +1,6 @@
 import sys
 import os
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from flask import Flask, request, jsonify, render_template_string, send_from_directory
 from static_data import get_zone_from_vendor_zip, get_shipping_cost
@@ -334,7 +335,7 @@ HTML_PAGE = '''
     <div class="result-box mt-4" id="result-box" style="display:none;"></div>
 </div>
     <!-- New right-side averages panel -->
-    <div id="averages-panel" style="position: fixed; top: 40px; right: 50px; bottom: 50px; width: 320px; background: #f4f6fa; border: 1px solid #dee2e6; border-radius: 8px; box-shadow: 0 2px 8px rgba(19,41,75,0.08); padding: 18px 14px 14px 14px; z-index: 4; display: flex; flex-direction: column;">
+    <div id="averages-panel" style="position: fixed; top: 40px; left: calc(50% + 350px + 50px); bottom: 50px; width: 320px; background: #f4f6fa; border: 1px solid #dee2e6; border-radius: 8px; box-shadow: 0 2px 8px rgba(19,41,75,0.08); padding: 18px 14px 14px 14px; z-index: 4; display: flex; flex-direction: column;">
       <div style="color:#13294B; font-weight:700; font-size:1.1em; margin-bottom:10px;">Avg. Per-Unit Shipping Costs</div>
       <input type="text" id="averages-search" class="form-control form-control-sm mb-2" placeholder="Search item..." style="font-size:0.97em;">
       <div style="flex: 1 1 auto; min-height: 0; overflow-y: auto;">
