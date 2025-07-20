@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: gameday-shipping
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python app.py
+    envVars:
+      - key: GOOGLE_SHEETS_CREDENTIALS_JSON
+        sync: false
+      - key: ITEMS_SHEET_ID
+        sync: false
+      - key: HISTORY_SHEET_ID
+        sync: false 

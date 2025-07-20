@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.env
+google-credentials.json
+myenv/
+.DS_Store
+*.log 

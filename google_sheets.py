@@ -1,0 +1,199 @@
+import gspread
+from google.oauth2.service_account import Credentials
+import os
+import json
+from datetime import datetime
+
+def get_google_sheets_client():
+    """
+    Setup and return Google Sheets client using service account credentials.
+    """
+    # Get credentials from environment variable
+    creds_json = os.environ.get('GOOGLE_SHEETS_CREDENTIALS_JSON')
+    if not creds_json:
+        raise ValueError("GOOGLE_SHEETS_CREDENTIALS_JSON environment variable not set")
+    
+    creds_dict = json.loads(creds_json)
+    
+    # Define scope for Google Sheets API
+    scope = ['https://spreadsheets.google.com/feeds',
+             'https://www.googleapis.com/auth/drive']
+    
+    # Create credentials
+    credentials = Credentials.from_service_account_info(creds_dict, scopes=scope)
+    
+    # Create client
+    client = gspread.authorize(credentials)
+    return client
+
+def get_items_data():
+    """
+    Get all items data from Google Sheets.
+    Returns list of dictionaries with item data.
+    """
+    try:
+        client = get_google_sheets_client()
+        sheet_id = os.environ.get('ITEMS_SHEET_ID')
+        if not sheet_id:
+            raise ValueError("ITEMS_SHEET_ID environment variable not set")
+        
+        sheet = client.open_by_key(sheet_id).sheet1
+        records = sheet.get_all_records()
+        
+        # Convert to expected format
+        items = []
+        for record in records:
+            if record.get('Item Name') or record.get('Item'):  # Handle different column names
+                item_name = record.get('Item Name', record.get('Item', ''))
+                weight = record.get('Weight (lbs)', record.get('Weight', 0))
+                items.append({
+                    'Item': item_name,
+                    'Weight': weight
+                })
+        return items
+    except Exception as e:
+        print(f"Error getting items data: {e}")
+        return []
+
+def get_item_names():
+    """
+    Get list of item names from Google Sheets.
+    Returns list of item names.
+    """
+    items = get_items_data()
+    return [item['Item'] for item in items if item['Item']]
+
+def get_item_weight(item_name):
+    """
+    Get weight for a specific item from Google Sheets.
+    Returns weight as float or None if not found.
+    """
+    items = get_items_data()
+    item_name_lower = item_name.lower().strip()
+    
+    for item in items:
+        if item['Item'].lower().strip() == item_name_lower:
+            return float(item['Weight'])
+    return None
+
+def add_item_to_sheet(name, weight):
+    """
+    Add a new item to the Google Sheets items list.
+    """
+    try:
+        client = get_google_sheets_client()
+        sheet_id = os.environ.get('ITEMS_SHEET_ID')
+        sheet = client.open_by_key(sheet_id).sheet1
+        
+        # Check if item already exists
+        existing_items = get_item_names()
+        if name.lower().strip() in [item.lower().strip() for item in existing_items]:
+            raise ValueError("Item already exists")
+        
+        # Add new row
+        sheet.append_row([name, weight])
+        return True
+    except Exception as e:
+        print(f"Error adding item: {e}")
+        raise e
+
+def remove_item_from_sheet(name):
+    """
+    Remove an item from the Google Sheets items list.
+    """
+    try:
+        client = get_google_sheets_client()
+        sheet_id = os.environ.get('ITEMS_SHEET_ID')
+        sheet = client.open_by_key(sheet_id).sheet1
+        
+        # Find and delete the row
+        all_values = sheet.get_all_values()
+        for i, row in enumerate(all_values):
+            if row and row[0].lower().strip() == name.lower().strip():
+                sheet.delete_rows(i + 1)  # Sheets are 1-indexed
+                return True
+        return False
+    except Exception as e:
+        print(f"Error removing item: {e}")
+        raise e
+
+def save_shipping_history(item_name, per_unit_cost, per_unit_cost_offset):
+    """
+    Save shipping history to Google Sheets.
+    """
+    try:
+        client = get_google_sheets_client()
+        sheet_id = os.environ.get('HISTORY_SHEET_ID')
+        if not sheet_id:
+            raise ValueError("HISTORY_SHEET_ID environment variable not set")
+        
+        sheet = client.open_by_key(sheet_id).sheet1
+        
+        # Create timestamp
+        timestamp = datetime.now().isoformat(sep=' ', timespec='seconds')
+        
+        # Add new row
+        row = [item_name, per_unit_cost, per_unit_cost_offset, timestamp]
+        sheet.append_row(row)
+        return True
+    except Exception as e:
+        print(f"Error saving shipping history: {e}")
+        return False
+
+def get_shipping_history():
+    """
+    Get all shipping history from Google Sheets.
+    Returns list of dictionaries with history data.
+    """
+    try:
+        client = get_google_sheets_client()
+        sheet_id = os.environ.get('HISTORY_SHEET_ID')
+        if not sheet_id:
+            return []
+        
+        sheet = client.open_by_key(sheet_id).sheet1
+        records = sheet.get_all_records()
+        
+        # Convert to expected format
+        history = []
+        for record in records:
+            if record.get('Item Name'):
+                history.append({
+                    'Item Name': record['Item Name'],
+                    'Per-Unit Shipping Cost': record.get('Per-Unit Shipping Cost', 0),
+                    'Per-Unit Shipping Cost (Offset)': record.get('Per-Unit Shipping Cost (Offset)', 0),
+                    'Timestamp': record.get('Timestamp', '')
+                })
+        return history
+    except Exception as e:
+        print(f"Error getting shipping history: {e}")
+        return []
+
+def delete_item_shipping_history(item_name):
+    """
+    Delete all shipping history for a specific item.
+    """
+    try:
+        client = get_google_sheets_client()
+        sheet_id = os.environ.get('HISTORY_SHEET_ID')
+        if not sheet_id:
+            return True
+        
+        sheet = client.open_by_key(sheet_id).sheet1
+        
+        # Find and delete rows
+        all_values = sheet.get_all_values()
+        rows_to_delete = []
+        
+        for i, row in enumerate(all_values):
+            if row and row[0].lower().strip() == item_name.lower().strip():
+                rows_to_delete.append(i + 1)  # Sheets are 1-indexed
+        
+        # Delete rows in reverse order to maintain indices
+        for row_num in reversed(rows_to_delete):
+            sheet.delete_rows(row_num)
+        
+        return True
+    except Exception as e:
+        print(f"Error deleting shipping history: {e}")
+        return False 
