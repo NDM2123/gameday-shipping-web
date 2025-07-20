@@ -589,11 +589,21 @@ $("#shipping-form").submit(function(e) {
             let html = `<h5>Shipping Summary</h5>`;
             html += `<div>Total shipment weight: <b>${data.total_weight.toFixed(2)} lbs</b></div>`;
             html += `<div>Shipping zone: <b>${data.zone}</b></div>`;
-            html += `<div>Estimated total shipping cost: <b>$${data.estimated_total_shipping_cost.toFixed(2)}</b></div>`;
-            html += `<div>Estimated total shipping cost (with 14% offset): <b>$${data.offset_shipping_cost.toFixed(2)}</b></div>`;
-            html += `<hr/><h6>Cost Breakdown by Item</h6>`;
+            html += `<hr style="border-top: 2px solid #13294B; margin: 15px 0;"/>`;
+            html += `<div style="background: #f8f9fa; padding: 15px; border-radius: 8px; border-left: 4px solid #FF552E; margin: 15px 0;">`;
+            html += `<div style="font-size: 1.2em; font-weight: bold; color: #13294B; margin-bottom: 10px;">TOTAL SHIPPING COSTS:</div>`;
+            html += `<div style="font-size: 1.1em; margin-bottom: 8px;">Estimated Total Shipping Cost: <span style="font-weight: bold; color: #13294B; font-size: 1.2em;">$${data.estimated_total_shipping_cost.toFixed(2)}</span></div>`;
+            html += `<div style="font-size: 1.1em;">Estimated Total Shipping Cost (with 14% offset): <span style="font-weight: bold; color: #FF552E; font-size: 1.2em;">$${data.offset_shipping_cost.toFixed(2)}</span></div>`;
+            html += `</div>`;
+            html += `<hr style="border-top: 2px solid #13294B; margin: 15px 0;"/>`;
+            html += `<h6 style="color: #13294B; font-weight: bold;">Cost Breakdown by Item</h6>`;
             data.items.forEach(item => {
-                html += `<div><b>${item.name}</b> — Quantity: ${item.quantity}, Weight per unit: ${item.weight_per_unit} lbs<br/>Estimated shipping per unit: $${item.estimated_shipping_per_unit.toFixed(2)}<br/>Estimated shipping per unit (with 14% offset): $${item.offset_shipping_per_unit.toFixed(2)}</div><hr/>`;
+                html += `<div style="background: #f8f9fa; padding: 12px; border-radius: 6px; margin-bottom: 10px; border-left: 3px solid #13294B;">`;
+                html += `<div style="font-weight: bold; color: #13294B; font-size: 1.1em; margin-bottom: 8px;">${item.name}</div>`;
+                html += `<div style="margin-bottom: 5px;">Quantity: <b>${item.quantity}</b> | Weight per unit: <b>${item.weight_per_unit} lbs</b></div>`;
+                html += `<div style="margin-bottom: 5px;">Estimated shipping per unit: <span style="font-weight: bold; color: #13294B;">$${item.estimated_shipping_per_unit.toFixed(2)}</span></div>`;
+                html += `<div>Estimated shipping per unit (with 14% offset): <span style="font-weight: bold; color: #FF552E;">$${item.offset_shipping_per_unit.toFixed(2)}</span></div>`;
+                html += `</div>`;
             });
             $("#result-box").html(html).show();
             loadAveragesPanel(); // update averages after calculation
