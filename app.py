@@ -83,7 +83,7 @@ def api_calculate():
         }
         for item in items:
             weight = float(item.get("weight") or 0.0)
-            quantity = float(item.get("quantity") or 0.0)
+            quantity = int(item.get("quantity") or 0)
             safe_total_weight = float(total_weight or 0.0)
             weight_share = (weight * quantity / safe_total_weight) if safe_total_weight else 0.0
             est_item_cost = weight_share * total_shipping_cost
@@ -91,7 +91,7 @@ def api_calculate():
             offset_item_cost = weight_share * offset_shipping_cost
             offset_cost_per_unit = offset_item_cost / quantity if quantity else 0.0
             # Append to history
-            save_shipping_history(item["name"], est_cost_per_unit, offset_cost_per_unit)
+            save_shipping_history(item["name"], est_cost_per_unit, offset_cost_per_unit, quantity)
             item_result = {
                 "name": item["name"],
                 "quantity": int(quantity),
@@ -111,29 +111,40 @@ def api_item_shipping_averages():
         if not history:
             return jsonify({"items": []})
         
-        # Group by item name and calculate averages
+        # Group by item name and calculate weighted averages
         item_averages = {}
         for record in history:
             item_name = record['Item Name']
+            quantity = record.get('Quantity', 1)
+            try:
+                quantity = float(quantity)
+            except Exception:
+                quantity = 1
+            cost = record['Per-Unit Shipping Cost']
+            offset_cost = record['Per-Unit Shipping Cost (Offset)']
             if item_name not in item_averages:
                 item_averages[item_name] = {
-                    'costs': [],
-                    'offset_costs': []
+                    'cost_sum': 0.0,
+                    'offset_cost_sum': 0.0,
+                    'quantity_sum': 0.0
                 }
-            item_averages[item_name]['costs'].append(record['Per-Unit Shipping Cost'])
-            item_averages[item_name]['offset_costs'].append(record['Per-Unit Shipping Cost (Offset)'])
-        
-        # Calculate averages
+            item_averages[item_name]['cost_sum'] += float(cost) * quantity
+            item_averages[item_name]['offset_cost_sum'] += float(offset_cost) * quantity
+            item_averages[item_name]['quantity_sum'] += quantity
+        # Calculate weighted averages
         items = []
         for item_name, data in item_averages.items():
-            avg_cost = sum(data['costs']) / len(data['costs'])
-            avg_offset_cost = sum(data['offset_costs']) / len(data['offset_costs'])
+            if data['quantity_sum'] > 0:
+                avg_cost = data['cost_sum'] / data['quantity_sum']
+                avg_offset_cost = data['offset_cost_sum'] / data['quantity_sum']
+            else:
+                avg_cost = 0.0
+                avg_offset_cost = 0.0
             items.append({
                 "name": item_name,
                 "avg_per_unit_shipping": avg_cost,
                 "avg_per_unit_shipping_offset": avg_offset_cost
             })
-        
         return jsonify({"items": items})
     except Exception as e:
         return jsonify({"error": str(e)}), 400
@@ -166,7 +177,7 @@ def api_add_non_ups_item():
         per_unit_cost = freight / quantity
         from google_sheets import save_shipping_history
         # Save with offset=0, timestamp auto
-        save_shipping_history(name, per_unit_cost, 0)
+        save_shipping_history(name, per_unit_cost, 0, quantity)
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"error": str(e)}), 400
@@ -323,7 +334,7 @@ HTML_PAGE = '''
         <div style="color:#13294B; margin-bottom:8px;"><b>Add Non UPS Item</b></div>
         <form id="add-non-ups-item-form">
             <div class="mb-2">
-                <label for="non_ups_vendor_item" class="form-label" style="font-size:0.95em;">Vendor - item name</label>
+                <label for="non_ups_vendor_item" class="form-label" style="font-size:0.95em;">Vendor - Item Name</label>
                 <input type="text" class="form-control form-control-sm" id="non_ups_vendor_item" maxlength="100" required>
             </div>
             <div class="mb-2">
@@ -384,8 +395,8 @@ HTML_PAGE = '''
           <thead>
             <tr style="background:#e3e8f0;">
               <th>Item</th>
-              <th>Avg. Per-Unit</th>
-              <th>Avg. Offset</th>
+              <th>Low / Unit</th>
+              <th>High / Unit</th>
               <th>Delete</th>
             </tr>
           </thead>

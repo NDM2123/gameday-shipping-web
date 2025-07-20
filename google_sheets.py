@@ -125,9 +125,9 @@ def remove_item_from_sheet(name):
         print(f"Error removing item: {e}")
         raise e
 
-def save_shipping_history(item_name, per_unit_cost, per_unit_cost_offset):
+def save_shipping_history(item_name, per_unit_cost, per_unit_cost_offset, quantity=1):
     """
-    Save shipping history to Google Sheets.
+    Save shipping history to Google Sheets, including quantity.
     """
     try:
         client = get_google_sheets_client()
@@ -141,7 +141,7 @@ def save_shipping_history(item_name, per_unit_cost, per_unit_cost_offset):
         timestamp = datetime.now().isoformat(sep=' ', timespec='seconds')
         
         # Add new row
-        row = [item_name, per_unit_cost, per_unit_cost_offset, timestamp]
+        row = [item_name, per_unit_cost, per_unit_cost_offset, timestamp, quantity]
         sheet.append_row(row)
         return True
     except Exception as e:
@@ -170,7 +170,8 @@ def get_shipping_history():
                     'Item Name': record['Item Name'],
                     'Per-Unit Shipping Cost': record.get('Per-Unit Shipping Cost', 0),
                     'Per-Unit Shipping Cost (Offset)': record.get('Per-Unit Shipping Cost (Offset)', 0),
-                    'Timestamp': record.get('Timestamp', '')
+                    'Timestamp': record.get('Timestamp', ''),
+                    'Quantity': record.get('Quantity', 1)
                 })
         return history
     except Exception as e:
