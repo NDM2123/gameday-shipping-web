@@ -150,6 +150,27 @@ def api_delete_item_shipping_history():
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 
+@app.route("/api/add_non_ups_item", methods=["POST"])
+def api_add_non_ups_item():
+    data = request.json or {}
+    name = data.get("name", "").strip()
+    quantity = data.get("quantity", None)
+    freight = data.get("freight", None)
+    if not name or quantity is None or freight is None:
+        return jsonify({"error": "All fields are required."}), 400
+    try:
+        quantity = int(quantity)
+        freight = float(freight)
+        if quantity <= 0 or freight <= 0:
+            return jsonify({"error": "Quantity and freight must be positive."}), 400
+        per_unit_cost = freight / quantity
+        from google_sheets import save_shipping_history
+        # Save with offset=0, timestamp auto
+        save_shipping_history(name, per_unit_cost, 0)
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
 @app.route('/all_gsf_classic_black_punched_out_400x.webp')
 def serve_logo():
     return send_from_directory('assets', 'all_gsf_classic_black_punched_out_400x.webp')
@@ -234,7 +255,7 @@ HTML_PAGE = '''
             border: 1px solid #dee2e6;
             border-radius: 8px;
             padding: 16px 12px 12px 12px;
-            margin-top: 110px;
+            margin-top: 70px;
             position: absolute;
             left: calc(50% - 350px - 220px - 50px);
             top: 220px;
@@ -295,6 +316,26 @@ HTML_PAGE = '''
             </div>
             <button type="submit" class="btn btn-sm btn-danger w-100">Remove Item</button>
             <div id="remove-item-msg" style="font-size:0.9em; margin-top:6px;"></div>
+        </form>
+    </div>
+    <!-- Add Non UPS Item Box -->
+    <div class="remove-item-box" style="top: 400px;">
+        <div style="color:#13294B; margin-bottom:8px;"><b>Add Non UPS Item</b></div>
+        <form id="add-non-ups-item-form">
+            <div class="mb-2">
+                <label for="non_ups_vendor_item" class="form-label" style="font-size:0.95em;">Vendor - item name</label>
+                <input type="text" class="form-control form-control-sm" id="non_ups_vendor_item" maxlength="100" required>
+            </div>
+            <div class="mb-2">
+                <label for="non_ups_quantity" class="form-label" style="font-size:0.95em;">Quantity</label>
+                <input type="number" class="form-control form-control-sm" id="non_ups_quantity" min="1" step="1" required>
+            </div>
+            <div class="mb-2">
+                <label for="non_ups_freight" class="form-label" style="font-size:0.95em;">Freight Invoiced ($)</label>
+                <input type="number" class="form-control form-control-sm" id="non_ups_freight" min="0.01" step="0.01" required>
+            </div>
+            <button type="submit" class="btn btn-sm btn-primary w-100">Add Non UPS Item</button>
+            <div id="add-non-ups-item-msg" style="font-size:0.9em; margin-top:6px;"></div>
         </form>
     </div>
     <div class="container shadow p-4 bg-white rounded">
@@ -536,6 +577,37 @@ $(document).ready(function() {
             },
             error: function(xhr) {
                 let err = xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : "Error removing item.";
+                msgBox.text(err).css("color", "#d32f2f");
+            }
+        });
+    });
+
+    // Add Non UPS Item form handler
+    $("#add-non-ups-item-form").submit(function(e) {
+        e.preventDefault();
+        const name = $("#non_ups_vendor_item").val().trim();
+        const quantity = parseInt($("#non_ups_quantity").val());
+        const freight = parseFloat($("#non_ups_freight").val());
+        const msgBox = $("#add-non-ups-item-msg");
+        msgBox.text("");
+        if (!name || isNaN(quantity) || quantity <= 0 || isNaN(freight) || freight <= 0) {
+            msgBox.text("Please enter valid values.").css("color", "#d32f2f");
+            return;
+        }
+        $.ajax({
+            url: "/api/add_non_ups_item",
+            method: "POST",
+            contentType: "application/json",
+            data: JSON.stringify({ name, quantity, freight }),
+            success: function(data) {
+                msgBox.text("Non UPS item added!").css("color", "#388e3c");
+                $("#non_ups_vendor_item").val("");
+                $("#non_ups_quantity").val("");
+                $("#non_ups_freight").val("");
+                loadAveragesPanel();
+            },
+            error: function(xhr) {
+                let err = xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : "Error adding non UPS item.";
                 msgBox.text(err).css("color", "#d32f2f");
             }
         });
