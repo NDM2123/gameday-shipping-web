@@ -5,6 +5,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from flask import Flask, request, jsonify, render_template_string, send_from_directory
 from static_data import get_zone_from_vendor_zip, get_shipping_cost
 from google_sheets import get_item_names, get_item_weight, add_item_to_sheet, remove_item_from_sheet, save_shipping_history, get_shipping_history, delete_item_shipping_history
+from google_sheets import get_vendors_data, add_vendor_to_sheet
 import math
 
 app = Flask(__name__)
@@ -220,6 +221,31 @@ def api_last_weight_used():
     from google_sheets import get_last_weight_used
     weight = get_last_weight_used(item_name, vendor)
     return jsonify({"weight": weight})
+
+# New API endpoint for vendor list
+@app.route("/api/vendors", methods=["GET"])
+def api_vendors():
+    try:
+        vendors = get_vendors_data()
+        return jsonify({"vendors": vendors})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+# New API endpoint to add a vendor
+@app.route("/api/add_vendor", methods=["POST"])
+def api_add_vendor():
+    data = request.json or {}
+    name = data.get("name", "").strip()
+    zip_code = data.get("zip", "").strip()
+    if not name or not zip_code:
+        return jsonify({"error": "Vendor name and ZIP code are required."}), 400
+    try:
+        add_vendor_to_sheet(name, zip_code)
+        return jsonify({"success": True})
+    except ValueError as ve:
+        return jsonify({"error": str(ve)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 HTML_PAGE = '''
 <!DOCTYPE html>
@@ -603,55 +629,63 @@ $(document).ready(function() {
     });
     loadItemNames();
 
-    // Vendor list for dropdown (mock data, replace with backend if needed)
-    let VENDOR_ZIP_OPTIONS = [
-        { vendor: "Acme Corp", zip: "12345" },
-        { vendor: "Beta Supplies", zip: "23456" },
-        { vendor: "Gamma Goods", zip: "34567" },
-        { vendor: "Delta Distributors", zip: "45678" }
-    ];
-    const vendorZipSelect = $("#vendor_zip");
-    vendorZipSelect.append(new Option("", "")); // allow blank
-    VENDOR_ZIP_OPTIONS.forEach(opt => {
-        vendorZipSelect.append(new Option(`${opt.vendor} - ${opt.zip}`, opt.zip));
-    });
-    // Enable Select2 with tags for free text
-    vendorZipSelect.select2({
-        placeholder: "Select or enter a ZIP code",
-        allowClear: true,
-        tags: true,
-        width: 'resolve',
-        createTag: function(params) {
-            // Only allow numeric zip codes as custom entries
-            var term = $.trim(params.term);
-            if (/^\d{5}$/.test(term)) {
-                return { id: term, text: term, newTag: true };
+    // Fetch vendor list from backend and populate dropdowns
+    function loadVendorsDropdowns() {
+        $.ajax({
+            url: "/api/vendors",
+            method: "GET",
+            success: function(data) {
+                const vendors = data.vendors || [];
+                // UPS calculator dropdown
+                const vendorZipSelect = $("#vendor_zip");
+                vendorZipSelect.empty();
+                vendorZipSelect.append(new Option("", "")); // allow blank
+                vendors.forEach(opt => {
+                    vendorZipSelect.append(new Option(`${opt.vendor} - ${opt.zip}`, opt.zip));
+                });
+                vendorZipSelect.select2({
+                    placeholder: "Select or enter a ZIP code",
+                    allowClear: true,
+                    tags: true,
+                    width: 'resolve',
+                    createTag: function(params) {
+                        // Only allow numeric zip codes as custom entries
+                        var term = $.trim(params.term);
+                        if (/^\d{5}$/.test(term)) {
+                            return { id: term, text: term, newTag: true };
+                        }
+                        return null;
+                    }
+                });
+                // Non-UPS calculator dropdown
+                const nonUpsVendorSelect = $("#non_ups_vendor_zip");
+                if (nonUpsVendorSelect.length) {
+                    nonUpsVendorSelect.empty();
+                    nonUpsVendorSelect.append(new Option("", ""));
+                    vendors.forEach(opt => {
+                        nonUpsVendorSelect.append(new Option(`${opt.vendor} - ${opt.zip}`, opt.zip));
+                    });
+                    nonUpsVendorSelect.select2({
+                        placeholder: "Select or enter a ZIP code",
+                        allowClear: true,
+                        tags: true,
+                        width: 'resolve',
+                        createTag: function(params) {
+                            var term = $.trim(params.term);
+                            if (/^\d{5}$/.test(term)) {
+                                return { id: term, text: term, newTag: true };
+                            }
+                            return null;
+                        }
+                    });
+                }
+            },
+            error: function(xhr) {
+                alert("Error loading vendors: " + (xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : "Unknown error"));
             }
-            return null;
-        }
-    });
-    // Add Vendor form handler
-    $("#add-vendor-form").submit(function(e) {
-        e.preventDefault();
-        const name = $("#vendor_name_input").val().trim();
-        const zip = $("#vendor_zip_input").val().trim();
-        const msgBox = $("#add-vendor-msg");
-        msgBox.text("");
-        if (!name || !/^\d{5}$/.test(zip)) {
-            msgBox.text("Please enter a valid vendor name and 5-digit ZIP code.").css("color", "#d32f2f");
-            return;
-        }
-        // Check for duplicates
-        if (VENDOR_ZIP_OPTIONS.some(opt => opt.vendor.toLowerCase() === name.toLowerCase() && opt.zip === zip)) {
-            msgBox.text("Vendor with this ZIP already exists.").css("color", "#d32f2f");
-            return;
-        }
-        VENDOR_ZIP_OPTIONS.push({ vendor: name, zip });
-        vendorZipSelect.append(new Option(`${name} - ${zip}`, zip));
-        msgBox.text("Vendor added!").css("color", "#388e3c");
-        $("#vendor_name_input").val("");
-        $("#vendor_zip_input").val("");
-    });
+        });
+    }
+    loadVendorsDropdowns();
 
     // Add item form handler
     $("#add-item-form").submit(function(e) {
@@ -888,15 +922,7 @@ $(document).ready(function() {
       $("#non-ups-result-box").html(html).show();
     });
     // Populate vendor dropdown for non UPS calc
-    function updateNonUpsVendorDropdown() {
-      const select = $("#non_ups_vendor_zip");
-      select.empty();
-      VENDOR_ZIP_OPTIONS.forEach(opt => {
-        select.append(new Option(`${opt.vendor} - ${opt.zip}`, opt.zip));
-      });
-      select.val(null).trigger('change');
-    }
-    updateNonUpsVendorDropdown();
+    // This function is no longer needed as vendors are loaded dynamically
     // Show/hide logic for calculators
     $("#show-non-ups-calc").click(function() {
       $("#shipping-form, #result-box").hide();
@@ -905,6 +931,35 @@ $(document).ready(function() {
     $("#close-non-ups-calc").click(function() {
       $("#non-ups-calc-wrap").hide();
       $("#shipping-form, #result-box").show();
+    });
+
+    // Add Vendor form handler (AJAX)
+    $("#add-vendor-form").submit(function(e) {
+        e.preventDefault();
+        const name = $("#vendor_name_input").val().trim();
+        const zip = $("#vendor_zip_input").val().trim();
+        const msgBox = $("#add-vendor-msg");
+        msgBox.text("");
+        if (!name || !/^\d{5}$/.test(zip)) {
+            msgBox.text("Please enter a valid vendor name and 5-digit ZIP code.").css("color", "#d32f2f");
+            return;
+        }
+        $.ajax({
+            url: "/api/add_vendor",
+            method: "POST",
+            contentType: "application/json",
+            data: JSON.stringify({ name: name, zip: zip }),
+            success: function(data) {
+                msgBox.text("Vendor added!").css("color", "#388e3c");
+                $("#vendor_name_input").val("");
+                $("#vendor_zip_input").val("");
+                loadVendorsDropdowns(); // reload dropdowns
+            },
+            error: function(xhr) {
+                let err = xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : "Error adding vendor.";
+                msgBox.text(err).css("color", "#d32f2f");
+            }
+        });
     });
 });
 

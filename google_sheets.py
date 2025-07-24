@@ -226,3 +226,50 @@ def get_last_weight_used(item_name, vendor=None):
             except Exception:
                 continue
     return None 
+
+def get_vendors_data():
+    """
+    Get all vendors from the Google Sheet specified by VENDORS_SHEET_ID.
+    Returns a list of dicts: { 'vendor': ..., 'zip': ... }
+    """
+    try:
+        client = get_google_sheets_client()
+        sheet_id = os.environ.get('VENDORS_SHEET_ID')
+        if not sheet_id:
+            raise ValueError("VENDORS_SHEET_ID environment variable not set")
+        sheet = client.open_by_key(sheet_id).sheet1
+        records = sheet.get_all_records()
+        vendors = []
+        for record in records:
+            name = record.get('Vendor Name')
+            zip_code = record.get('ZIP Code')
+            if name and zip_code:
+                vendors.append({'vendor': name, 'zip': str(zip_code)})
+        return vendors
+    except Exception as e:
+        print(f"Error getting vendors data: {e}")
+        return [] 
+
+def add_vendor_to_sheet(name, zip_code):
+    """
+    Add a new vendor to the Google Sheets vendors list.
+    Checks for duplicates (same name and zip).
+    """
+    try:
+        client = get_google_sheets_client()
+        sheet_id = os.environ.get('VENDORS_SHEET_ID')
+        if not sheet_id:
+            raise ValueError("VENDORS_SHEET_ID environment variable not set")
+        sheet = client.open_by_key(sheet_id).sheet1
+        # Check for duplicates
+        records = sheet.get_all_records()
+        for record in records:
+            if (str(record.get('Vendor Name', '')).strip().lower() == name.strip().lower() and
+                str(record.get('ZIP Code', '')).strip() == str(zip_code).strip()):
+                raise ValueError("Vendor with this ZIP already exists.")
+        # Add new row
+        sheet.append_row([name, zip_code])
+        return True
+    except Exception as e:
+        print(f"Error adding vendor: {e}")
+        raise e 
