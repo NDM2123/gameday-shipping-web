@@ -125,9 +125,9 @@ def remove_item_from_sheet(name):
         print(f"Error removing item: {e}")
         raise e
 
-def save_shipping_history(item_name, per_unit_cost, per_unit_cost_offset, quantity=1, vendor=None):
+def save_shipping_history(item_name, per_unit_cost, per_unit_cost_offset, quantity=1, vendor=None, is_ups='Yes', weight_used=''):
     """
-    Save shipping history to Google Sheets, including quantity and vendor.
+    Save shipping history to Google Sheets, including quantity, vendor, UPS flag, and weight used.
     """
     try:
         client = get_google_sheets_client()
@@ -137,8 +137,8 @@ def save_shipping_history(item_name, per_unit_cost, per_unit_cost_offset, quanti
         sheet = client.open_by_key(sheet_id).sheet1
         # Create timestamp
         timestamp = datetime.now().isoformat(sep=' ', timespec='seconds')
-        # Add new row (add vendor as last column)
-        row = [item_name, per_unit_cost, per_unit_cost_offset, timestamp, quantity, vendor or ""]
+        # Add new row (add vendor, UPS, and weight used as last columns)
+        row = [item_name, per_unit_cost, per_unit_cost_offset, timestamp, quantity, vendor or "", is_ups, weight_used]
         sheet.append_row(row)
         return True
     except Exception as e:
@@ -148,7 +148,7 @@ def save_shipping_history(item_name, per_unit_cost, per_unit_cost_offset, quanti
 def get_shipping_history():
     """
     Get all shipping history from Google Sheets.
-    Returns list of dictionaries with history data, including vendor.
+    Returns list of dictionaries with history data, including vendor and UPS.
     """
     try:
         client = get_google_sheets_client()
@@ -167,7 +167,9 @@ def get_shipping_history():
                     'Per-Unit Shipping Cost (Offset)': record.get('Per-Unit Shipping Cost (Offset)', 0),
                     'Timestamp': record.get('Timestamp', ''),
                     'Quantity': record.get('Quantity', 1),
-                    'Vendor': record.get('Vendor', '')
+                    'Vendor': record.get('Vendor', ''),
+                    'UPS': record.get('UPS', ''),
+                    'Weight Used': record.get('Weight Used', '')
                 })
         return history
     except Exception as e:
@@ -205,3 +207,22 @@ def get_items_with_weights():
     """
     items = get_items_data()
     return [{"name": item["Item"], "weight": item["Weight"]} for item in items if item["Item"]] 
+
+def get_last_weight_used(item_name, vendor=None):
+    """
+    Return the most recent weight used for an item (optionally filtered by vendor) from the historic data sheet.
+    """
+    history = get_shipping_history()
+    filtered = [r for r in history if r.get('Item Name', '').strip().lower() == item_name.strip().lower()]
+    if vendor:
+        filtered = [r for r in filtered if r.get('Vendor', '').strip().lower() == vendor.strip().lower()]
+    # Sort by timestamp descending
+    filtered.sort(key=lambda r: r.get('Timestamp', ''), reverse=True)
+    for record in filtered:
+        weight = record.get('Weight Used', '')
+        if weight not in (None, '', 'N/A'):
+            try:
+                return float(weight)
+            except Exception:
+                continue
+    return None 

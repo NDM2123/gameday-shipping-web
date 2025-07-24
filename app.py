@@ -94,8 +94,8 @@ def api_calculate():
             retail_50 = (cost + offset_cost_per_unit) / 0.5 if quantity else 0.0
             retail_55 = (cost + offset_cost_per_unit) / 0.45 if quantity else 0.0
             retail_60 = (cost + offset_cost_per_unit) / 0.4 if quantity else 0.0
-            # Append to history (now with vendor)
-            save_shipping_history(item["name"], offset_cost_per_unit, offset_cost_per_unit, quantity, vendor)
+            # Append to history (now with vendor, UPS flag, and weight used)
+            save_shipping_history(item["name"], offset_cost_per_unit, offset_cost_per_unit, quantity, vendor, is_ups='Yes', weight_used=weight)
             item_result = {
                 "name": item["name"],
                 "quantity": int(quantity),
@@ -130,10 +130,12 @@ def api_item_shipping_averages():
             except Exception:
                 quantity = 1
             offset_cost = record['Per-Unit Shipping Cost (Offset)']
+            is_ups = record.get('UPS', 'No') # Get UPS value
             if key not in item_averages:
                 item_averages[key] = {
                     'offset_cost_sum': 0.0,
-                    'quantity_sum': 0.0
+                    'quantity_sum': 0.0,
+                    'UPS': is_ups # Store UPS value
                 }
             item_averages[key]['offset_cost_sum'] += float(offset_cost) * quantity
             item_averages[key]['quantity_sum'] += quantity
@@ -147,7 +149,8 @@ def api_item_shipping_averages():
             items.append({
                 "name": item_name,
                 "vendor": vendor,
-                "avg_per_unit_shipping_offset": avg_offset_cost
+                "avg_per_unit_shipping_offset": avg_offset_cost,
+                "UPS": data['UPS'] # Include UPS value
             })
         return jsonify({"items": items})
     except Exception as e:
@@ -173,6 +176,7 @@ def api_add_non_ups_item():
     quantity = data.get("quantity", None)
     freight = data.get("freight", None)
     vendor = data.get("vendor", "").strip() # Added vendor parameter
+    weight_used = data.get("weight_used", None)
     if not name or quantity is None or freight is None or not vendor:
         return jsonify({"error": "All fields are required."}), 400
     try:
@@ -181,8 +185,8 @@ def api_add_non_ups_item():
         if quantity <= 0 or freight <= 0:
             return jsonify({"error": "Quantity and freight must be positive."}), 400
         per_unit_cost = freight / quantity
-        # Save with per_unit_cost in both actual and offset fields
-        save_shipping_history(name, per_unit_cost, per_unit_cost, quantity, vendor)
+        # Save with per_unit_cost in both actual and offset fields, UPS flag 'No', and weight used
+        save_shipping_history(name, per_unit_cost, per_unit_cost, quantity, vendor, is_ups='No', weight_used=weight_used)
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"error": str(e)}), 400
@@ -193,9 +197,29 @@ def api_items_with_weights():
     items = get_items_with_weights()
     return jsonify({"items": items})
 
+@app.route("/api/item_names_by_vendor", methods=["POST"])
+def api_item_names_by_vendor():
+    data = request.json or {}
+    vendor = data.get("vendor", "").strip()
+    from google_sheets import get_shipping_history
+    history = get_shipping_history()
+    items = sorted(list(set(
+        record['Item Name'] for record in history if record.get('Vendor', '').strip() == vendor and record.get('Item Name')
+    )))
+    return jsonify({"items": items})
+
 @app.route('/all_gsf_classic_black_punched_out_400x.webp')
 def serve_logo():
     return send_from_directory('assets', 'all_gsf_classic_black_punched_out_400x.webp')
+
+@app.route("/api/last_weight_used", methods=["POST"])
+def api_last_weight_used():
+    data = request.json or {}
+    item_name = data.get("item_name", "").strip()
+    vendor = data.get("vendor", "").strip()
+    from google_sheets import get_last_weight_used
+    weight = get_last_weight_used(item_name, vendor)
+    return jsonify({"weight": weight})
 
 HTML_PAGE = '''
 <!DOCTYPE html>
@@ -449,6 +473,7 @@ HTML_PAGE = '''
               <th>Item</th>
               <th>Vendor</th>
               <th>Per-Unit Shipping</th>
+              <th>UPS</th>
             </tr>
           </thead>
           <tbody id="averages-table-body">
@@ -513,14 +538,25 @@ function renderAveragesTable(filterText = "") {
     let filtered = averagesData;
     if (filterText) {
         const search = filterText.toLowerCase();
-        filtered = averagesData.filter(item => item.name.toLowerCase().includes(search) || (item.vendor && item.vendor.toLowerCase().includes(search)));
+        filtered = averagesData.filter(item =>
+            (item.name && item.name.toLowerCase().includes(search)) ||
+            (item.vendor && item.vendor.toLowerCase().includes(search))
+        );
     }
     if (!filtered || filtered.length === 0) {
-        tbody.append('<tr><td colspan="3" class="text-center text-muted">No results.</td></tr>');
+        tbody.append('<tr><td colspan="4" class="text-center text-muted">No results.</td></tr>');
         return;
     }
     filtered.forEach(item => {
-        tbody.append(`<tr><td>${item.name}</td><td>${item.vendor || ''}</td><td class='shipping-cell' data-shipping='${item.avg_per_unit_shipping_offset}' data-item='${item.name}' data-vendor='${item.vendor || ''}'>$${item.avg_per_unit_shipping_offset.toFixed(2)}</td></tr>`);
+        let upsCell = '';
+        if ((item.UPS || '').toLowerCase() === 'yes') {
+            upsCell = `<td style='background:#c8e6c9; color:#256029; font-weight:bold;'>Yes</td>`;
+        } else if ((item.UPS || '').toLowerCase() === 'no') {
+            upsCell = `<td style='background:#ffcdd2; color:#b71c1c; font-weight:bold;'>No</td>`;
+        } else {
+            upsCell = `<td>${item.UPS || ''}</td>`;
+        }
+        tbody.append(`<tr><td>${item.name}</td><td>${item.vendor || ''}</td><td class='shipping-cell' data-shipping='${item.avg_per_unit_shipping_offset}' data-item='${item.name}' data-vendor='${item.vendor || ''}'>$${item.avg_per_unit_shipping_offset.toFixed(2)}</td>${upsCell}</tr>`);
     });
     // Attach click handler for shipping cost cells
     $(".shipping-cell").css('cursor', 'pointer').attr('title', 'Click to calculate retail').off('click').on('click', function() {
@@ -700,11 +736,12 @@ $(document).ready(function() {
     }
     loadNonUpsWeightDropdown();
 
-    // Make the Non-UPS item weight dropdown searchable
+    // Make the Non-UPS item weight dropdown searchable and allow manual entry
     $("#non_ups_item_weight").select2({
-      placeholder: "Select item weight",
+      placeholder: "Select or enter item weight",
       allowClear: true,
-      width: 'resolve'
+      width: 'resolve',
+      tags: true // allow manual entry
     });
 
     // Add Non UPS Item form handler
@@ -747,7 +784,7 @@ $(document).ready(function() {
         list.append('<span class="text-muted">No items added.</span>');
       } else {
         nonUpsItems.forEach((item, idx) => {
-          list.append(`<div>${item.name} x ${item.quantity} (each ${item.weight} lbs) <button class='btn btn-sm btn-danger ms-2' onclick='removeNonUpsItem(${idx})'>Remove</button></div>`);
+          list.append(`<div>${item.name} x ${item.quantity} (each ${item.weight ? item.weight + ' lbs' : 'N/A'}) <button class='btn btn-sm btn-danger ms-2' onclick='removeNonUpsItem(${idx})'>Remove</button></div>`);
         });
       }
     }
@@ -755,26 +792,36 @@ $(document).ready(function() {
       nonUpsItems.splice(idx, 1);
       updateNonUpsItemsList();
     };
-    $("#add-non-ups-item-btn").click(function() {
+    $("#add-non-ups-item-btn").off('click').on('click', function() {
         const name = $("#non_ups_item_name").val().trim();
         const quantity = parseInt($("#non_ups_item_quantity").val());
+        let weight = null;
         const weightData = $("#non_ups_item_weight").val();
-        
-        if (!name || isNaN(quantity) || quantity <= 0 || !weightData) {
-            alert("Please enter a valid item name, quantity, and select a weight.");
+        if (weightData) {
+            try {
+                // If it's a JSON string, parse it
+                const parsed = JSON.parse(weightData);
+                if (typeof parsed === 'object' && parsed.weight !== undefined) {
+                    weight = parsed.weight;
+                } else if (!isNaN(weightData)) {
+                    weight = parseFloat(weightData);
+                }
+            } catch (e) {
+                // If not JSON, try to parse as float
+                if (!isNaN(weightData)) {
+                    weight = parseFloat(weightData);
+                }
+            }
+        }
+        if (!name || isNaN(quantity) || quantity <= 0) {
+            alert("Please enter a valid item name and quantity.");
             return;
         }
-
-        try {
-            const { weight } = JSON.parse(weightData);
-            nonUpsItems.push({ name, quantity, weight });
-            updateNonUpsItemsList();
-            $("#non_ups_item_name").val("");
-            $("#non_ups_item_quantity").val("");
-            $("#non_ups_item_weight").val("").trigger('change');
-        } catch (e) {
-            alert("Error processing weight data. Please try again.");
-        }
+        nonUpsItems.push({ name, quantity, weight });
+        updateNonUpsItemsList();
+        $("#non_ups_item_name").val("");
+        $("#non_ups_item_quantity").val("");
+        $("#non_ups_item_weight").val("").trigger('change');
     });
     $("#clear-non-ups-items-btn").click(function() {
       nonUpsItems = [];
@@ -794,23 +841,34 @@ $(document).ready(function() {
         alert("Please select a vendor and enter a valid freight cost.");
         return;
       }
-      // Calculate total weight
-      const totalWeight = nonUpsItems.reduce((sum, item) => sum + item.weight * item.quantity, 0);
+      // If all weights are missing or zero, split by quantity
+      const anyWeight = nonUpsItems.some(item => item.weight && !isNaN(item.weight) && item.weight > 0);
+      let totalWeight = 0;
+      if (anyWeight) {
+        totalWeight = nonUpsItems.reduce((sum, item) => sum + ((item.weight && !isNaN(item.weight) && item.weight > 0 ? item.weight : 1) * item.quantity), 0);
+      } else {
+        totalWeight = nonUpsItems.reduce((sum, item) => sum + item.quantity, 0);
+      }
       let html = `<h5>Freight Split</h5>`;
       html += `<div>Total freight: <b>$${freight.toFixed(2)}</b></div>`;
-      html += `<div>Total shipment weight: <b>${totalWeight.toFixed(2)} lbs</b></div>`;
+      html += `<div>Total shipment weight: <b>${anyWeight ? totalWeight.toFixed(2) + ' lbs' : 'N/A'}</b></div>`;
       html += `<hr style='margin: 10px 0;'/>`;
       html += `<h6>Cost Breakdown by Item</h6>`;
       // Save each item to history
       let saveCount = 0;
       nonUpsItems.forEach(item => {
-        const itemTotalWeight = item.weight * item.quantity;
+        let itemTotalWeight = 0;
+        if (anyWeight) {
+          itemTotalWeight = (item.weight && !isNaN(item.weight) && item.weight > 0 ? item.weight : 1) * item.quantity;
+        } else {
+          itemTotalWeight = item.quantity;
+        }
         const share = totalWeight ? (itemTotalWeight / totalWeight) : 0;
         const itemFreight = share * freight;
         const perUnitFreight = itemFreight / item.quantity;
         html += `<div style='background: #f8f9fa; padding: 12px; border-radius: 6px; margin-bottom: 10px; border-left: 3px solid #13294B;'>`;
         html += `<div style='font-weight: bold; color: #13294B; font-size: 1.1em; margin-bottom: 8px;'>${item.name}</div>`;
-        html += `<div>Quantity: <b>${item.quantity}</b> | Weight per unit: <b>${item.weight} lbs</b></div>`;
+        html += `<div>Quantity: <b>${item.quantity}</b> | Weight per unit: <b>${item.weight ? item.weight + ' lbs' : 'N/A'}</b></div>`;
         html += `<div>Freight per unit: <span style='font-weight: bold; color: #FF552E;'>$${perUnitFreight.toFixed(2)}</span></div>`;
         html += `</div>`;
         // Save to history
@@ -818,7 +876,7 @@ $(document).ready(function() {
           url: "/api/add_non_ups_item",
           method: "POST",
           contentType: "application/json",
-          data: JSON.stringify({ name: item.name, quantity: item.quantity, freight: itemFreight, vendor: vendor_label.split(' - ')[0] }),
+          data: JSON.stringify({ name: item.name, quantity: item.quantity, freight: itemFreight, vendor: vendor_label.split(' - ')[0], weight_used: item.weight }),
           complete: function() {
             saveCount++;
             if (saveCount === nonUpsItems.length) {
@@ -938,6 +996,83 @@ $("#shipping-form").submit(function(e) {
 // Initial render
 updateItemList();
 loadAveragesPanel();
+
+function updateNonUpsItemNameField() {
+    const vendor_zip = $("#non_ups_vendor_zip").val();
+    const vendor_label = $("#non_ups_vendor_zip option:selected").text();
+    const vendor = vendor_label ? vendor_label.split(' - ')[0].trim() : '';
+    const container = $("#non_ups_item_name").parent();
+    if (vendor) {
+        // Replace with select2 dropdown
+        if (!$("#non_ups_item_name").is('select')) {
+            $("#non_ups_item_name").replaceWith('<select class="form-control" id="non_ups_item_name" style="width:100%"></select>');
+        }
+        const select = $("#non_ups_item_name");
+        select.empty();
+        $.ajax({
+            url: "/api/item_names_by_vendor",
+            method: "POST",
+            contentType: "application/json",
+            data: JSON.stringify({ vendor }),
+            success: function(data) {
+                data.items.forEach(name => {
+                    select.append(new Option(name, name));
+                });
+                select.val(null).trigger('change');
+            }
+        });
+        select.select2({
+            placeholder: "Select item name",
+            allowClear: true,
+            width: 'resolve',
+            tags: true // allow new entries
+        });
+    } else {
+        // Replace with text input
+        if (!$("#non_ups_item_name").is('input')) {
+            $("#non_ups_item_name").replaceWith('<input type="text" class="form-control" id="non_ups_item_name">');
+        }
+    }
+}
+// Attach to vendor dropdown change
+$(document).on('change', '#non_ups_vendor_zip', function() {
+    updateNonUpsItemNameField();
+});
+// Also call on page load
+updateNonUpsItemNameField();
+$(document).on('change', '#non_ups_item_name', function() {
+    const item = $(this).val();
+    const vendor_label = $('#non_ups_vendor_zip option:selected').text();
+    const vendor = vendor_label ? vendor_label.split(' - ')[0].trim() : '';
+    if (item && vendor) {
+        $.ajax({
+            url: '/api/last_weight_used',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ item_name: item, vendor: vendor }),
+            success: function(data) {
+                if (data.weight !== null && data.weight !== undefined && data.weight !== '') {
+                    // Find the option in the weight dropdown and select it if present, else add it
+                    const select = $('#non_ups_item_weight');
+                    let found = false;
+                    select.find('option').each(function() {
+                        if (parseFloat($(this).val()) === parseFloat(data.weight)) {
+                            found = true;
+                            select.val($(this).val()).trigger('change');
+                        }
+                    });
+                    if (!found) {
+                        // Add the option and select it
+                        const label = `${item} (${data.weight} lbs)`;
+                        const value = JSON.stringify({ name: item, weight: data.weight });
+                        select.append(new Option(label, value));
+                        select.val(value).trigger('change');
+                    }
+                }
+            }
+        });
+    }
+});
 </script>
 </body>
 </html>
