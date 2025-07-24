@@ -125,23 +125,20 @@ def remove_item_from_sheet(name):
         print(f"Error removing item: {e}")
         raise e
 
-def save_shipping_history(item_name, per_unit_cost, per_unit_cost_offset, quantity=1):
+def save_shipping_history(item_name, per_unit_cost, per_unit_cost_offset, quantity=1, vendor=None):
     """
-    Save shipping history to Google Sheets, including quantity.
+    Save shipping history to Google Sheets, including quantity and vendor.
     """
     try:
         client = get_google_sheets_client()
         sheet_id = os.environ.get('HISTORY_SHEET_ID')
         if not sheet_id:
             raise ValueError("HISTORY_SHEET_ID environment variable not set")
-        
         sheet = client.open_by_key(sheet_id).sheet1
-        
         # Create timestamp
         timestamp = datetime.now().isoformat(sep=' ', timespec='seconds')
-        
-        # Add new row
-        row = [item_name, per_unit_cost, per_unit_cost_offset, timestamp, quantity]
+        # Add new row (add vendor as last column)
+        row = [item_name, per_unit_cost, per_unit_cost_offset, timestamp, quantity, vendor or ""]
         sheet.append_row(row)
         return True
     except Exception as e:
@@ -151,17 +148,15 @@ def save_shipping_history(item_name, per_unit_cost, per_unit_cost_offset, quanti
 def get_shipping_history():
     """
     Get all shipping history from Google Sheets.
-    Returns list of dictionaries with history data.
+    Returns list of dictionaries with history data, including vendor.
     """
     try:
         client = get_google_sheets_client()
         sheet_id = os.environ.get('HISTORY_SHEET_ID')
         if not sheet_id:
             return []
-        
         sheet = client.open_by_key(sheet_id).sheet1
         records = sheet.get_all_records()
-        
         # Convert to expected format
         history = []
         for record in records:
@@ -171,38 +166,42 @@ def get_shipping_history():
                     'Per-Unit Shipping Cost': record.get('Per-Unit Shipping Cost', 0),
                     'Per-Unit Shipping Cost (Offset)': record.get('Per-Unit Shipping Cost (Offset)', 0),
                     'Timestamp': record.get('Timestamp', ''),
-                    'Quantity': record.get('Quantity', 1)
+                    'Quantity': record.get('Quantity', 1),
+                    'Vendor': record.get('Vendor', '')
                 })
         return history
     except Exception as e:
         print(f"Error getting shipping history: {e}")
         return []
 
-def delete_item_shipping_history(item_name):
+def delete_item_shipping_history(item_name, vendor=None):
     """
-    Delete all shipping history for a specific item.
+    Delete all shipping history for a specific item and vendor (if provided).
     """
     try:
         client = get_google_sheets_client()
         sheet_id = os.environ.get('HISTORY_SHEET_ID')
         if not sheet_id:
             return True
-        
         sheet = client.open_by_key(sheet_id).sheet1
-        
         # Find and delete rows
         all_values = sheet.get_all_values()
         rows_to_delete = []
-        
         for i, row in enumerate(all_values):
             if row and row[0].lower().strip() == item_name.lower().strip():
-                rows_to_delete.append(i + 1)  # Sheets are 1-indexed
-        
+                if vendor is None or (len(row) > 5 and row[5].lower().strip() == vendor.lower().strip()):
+                    rows_to_delete.append(i + 1)  # Sheets are 1-indexed
         # Delete rows in reverse order to maintain indices
         for row_num in reversed(rows_to_delete):
             sheet.delete_rows(row_num)
-        
         return True
     except Exception as e:
         print(f"Error deleting shipping history: {e}")
         return False 
+
+def get_items_with_weights():
+    """
+    Return all items with their weights as a list of dicts: {"name": ..., "weight": ...}
+    """
+    items = get_items_data()
+    return [{"name": item["Item"], "weight": item["Weight"]} for item in items if item["Item"]] 
