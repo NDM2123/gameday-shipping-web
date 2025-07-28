@@ -73,6 +73,7 @@ def api_calculate():
     receiving_zip = data.get("receiving_zip", "")
     items = data.get("items", [])
     vendor_label = data.get("vendor_label", None)  # new: pass vendor label if available
+    po_number = data.get("po_number", "").strip()  # new: get PO number
     try:
         # Correct order: destination (vendor_zip), origin (receiving_zip)
         zone = get_zone_from_vendor_zip(vendor_zip, receiving_zip)
@@ -99,8 +100,8 @@ def api_calculate():
             retail_50 = (cost + offset_cost_per_unit) / 0.5 if quantity else 0.0
             retail_55 = (cost + offset_cost_per_unit) / 0.45 if quantity else 0.0
             retail_60 = (cost + offset_cost_per_unit) / 0.4 if quantity else 0.0
-            # Append to history (now with vendor, UPS flag, and weight used)
-            save_shipping_history(item["name"], offset_cost_per_unit, offset_cost_per_unit, quantity, vendor, is_ups='Yes', weight_used=weight)
+            # Append to history (now with vendor, UPS flag, weight used, and PO number)
+            save_shipping_history(item["name"], offset_cost_per_unit, offset_cost_per_unit, quantity, vendor, is_ups='Yes', weight_used=weight, po_number=po_number)
             item_result = {
                 "name": item["name"],
                 "quantity": int(quantity),
@@ -439,6 +440,10 @@ HTML_PAGE = '''
                   <option value="60202">Northwestern</option>
                   <option value="45701">Ohio State</option>
                 </select>
+            </div>
+            <div class="col">
+                <label for="po_number" class="form-label">PO Number (Optional)</label>
+                <input type="text" class="form-control" id="po_number" placeholder="Enter PO number">
             </div>
         </div>
         <div class="row mb-3">
@@ -1121,6 +1126,7 @@ $("#shipping-form").submit(function(e) {
     const vendor_zip = $("#vendor_zip").val() ? $("#vendor_zip").val().trim() : "";
     const vendor_label = $("#vendor_zip option:selected").text();
     const receiving_zip = $("#receiving_zip").val() ? $("#receiving_zip").val().trim() : "";
+    const po_number = $("#po_number").val() ? $("#po_number").val().trim() : "";
     if (!vendor_zip || items.length === 0) {
         alert("Please enter a vendor ZIP and at least one item.");
         return;
@@ -1129,7 +1135,7 @@ $("#shipping-form").submit(function(e) {
         url: "/api/calculate",
         method: "POST",
         contentType: "application/json",
-        data: JSON.stringify({ vendor_zip, receiving_zip, items, vendor_label }),
+        data: JSON.stringify({ vendor_zip, receiving_zip, items, vendor_label, po_number }),
         success: function(data) {
             let html = ``;
             html += `<div style="background: #f8f9fa; padding: 15px; border-radius: 8px; border-left: 4px solid #FF552E; margin: 15px 0;">`;

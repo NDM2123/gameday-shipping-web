@@ -125,9 +125,9 @@ def remove_item_from_sheet(name):
         print(f"Error removing item: {e}")
         raise e
 
-def save_shipping_history(item_name, per_unit_cost, per_unit_cost_offset, quantity=1, vendor=None, is_ups='Yes', weight_used=''):
+def save_shipping_history(item_name, per_unit_cost, per_unit_cost_offset, quantity=1, vendor=None, is_ups='Yes', weight_used='', po_number=''):
     """
-    Save shipping history to Google Sheets, including quantity, vendor, UPS flag, and weight used.
+    Save shipping history to Google Sheets, including quantity, vendor, UPS flag, weight used, and PO number.
     """
     try:
         client = get_google_sheets_client()
@@ -137,8 +137,8 @@ def save_shipping_history(item_name, per_unit_cost, per_unit_cost_offset, quanti
         sheet = client.open_by_key(sheet_id).sheet1
         # Create timestamp
         timestamp = datetime.now().isoformat(sep=' ', timespec='seconds')
-        # Add new row (add vendor, UPS, and weight used as last columns)
-        row = [item_name, per_unit_cost, per_unit_cost_offset, timestamp, quantity, vendor or "", is_ups, weight_used]
+        # Add new row (add vendor, UPS, weight used, and PO as last columns)
+        row = [item_name, per_unit_cost, per_unit_cost_offset, timestamp, quantity, vendor or "", is_ups, weight_used, po_number]
         sheet.append_row(row)
         return True
     except Exception as e:
@@ -169,7 +169,8 @@ def get_shipping_history():
                     'Quantity': record.get('Quantity', 1),
                     'Vendor': record.get('Vendor', ''),
                     'UPS': record.get('UPS', ''),
-                    'Weight Used': record.get('Weight Used', '')
+                    'Weight Used': record.get('Weight Used', ''),
+                    'PO': record.get('PO', '')
                 })
         return history
     except Exception as e:
