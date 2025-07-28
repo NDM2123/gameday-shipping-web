@@ -2,17 +2,62 @@ import sys
 import os
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from flask import Flask, request, jsonify, render_template_string, send_from_directory
+from flask import Flask, request, jsonify, render_template_string, send_from_directory, redirect, url_for, session
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from static_data import get_zone_from_vendor_zip, get_shipping_cost
 from google_sheets import get_item_names, get_item_weight, add_item_to_sheet, remove_item_from_sheet, save_shipping_history, get_shipping_history, delete_item_shipping_history
 from google_sheets import get_vendors_data, add_vendor_to_sheet
 import math
 
 app = Flask(__name__)
+app.secret_key = 'your-secret-key-change-this-in-production'  # Change this in production
 
 OFFSET_PERCENT = 0.14  # 14% markup
 
+# Initialize Flask-Login
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+
+# Simple user class for authentication
+class User(UserMixin):
+    def __init__(self, user_id):
+        self.id = user_id
+
+# Predefined credentials
+USERS = {
+    'Gameday99': 'Basorg99*'
+}
+
+@login_manager.user_loader
+def load_user(user_id):
+    if user_id in USERS:
+        return User(user_id)
+    return None
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        username = request.form.get('username')
+        password = request.form.get('password')
+        
+        if username in USERS and USERS[username] == password:
+            user = User(username)
+            login_user(user)
+            return redirect(url_for('index'))
+        else:
+            return render_template_string(LOGIN_PAGE, error="Invalid username or password")
+    
+    return render_template_string(LOGIN_PAGE)
+
+@app.route("/logout")
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for('login'))
+
 @app.route("/")
+@login_required
 def index():
     return render_template_string(HTML_PAGE)
 
@@ -419,6 +464,9 @@ HTML_PAGE = '''
     <div class="uiuc-header">
         <img src="/all_gsf_classic_black_punched_out_400x.webp" alt="Logo" class="uiuc-logo">
         <h2 class="uiuc-title">Gameday Shipping Cost Estimator</h2>
+        <div style="margin-left: auto;">
+            <a href="{{ url_for('logout') }}" class="btn btn-outline-secondary btn-sm">Logout</a>
+        </div>
     </div>
     <form id="shipping-form">
           <div class="row mb-3">
@@ -1362,6 +1410,88 @@ $(document).on('change', '#non_ups_item_name', function() {
     }
 });
 </script>
+</body>
+</html>
+'''
+
+LOGIN_PAGE = '''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Gameday Shipping Cost Estimator</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --illini-blue: #13294B;
+            --illini-orange: #FF552E;
+        }
+        body { background: var(--illini-blue); }
+        .login-container {
+            max-width: 400px;
+            margin: 100px auto;
+            padding: 20px;
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 4px 24px rgba(19,41,75,0.15);
+        }
+        .login-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .login-header h2 {
+            color: var(--illini-blue);
+            font-weight: 700;
+            font-size: 2rem;
+        }
+        .form-control {
+            border-radius: 8px;
+            padding: 12px 16px;
+            font-size: 1rem;
+        }
+        .btn-primary {
+            background: var(--illini-orange);
+            border-color: var(--illini-orange);
+            border-radius: 8px;
+            padding: 12px 24px;
+            font-size: 1.1rem;
+        }
+        .btn-primary:hover {
+            background: #e64a19;
+            border-color: #e64a19;
+        }
+        .form-label {
+            color: var(--illini-blue);
+            font-weight: 600;
+        }
+        .error-message {
+            color: #d32f2f;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-header">
+            <h2>Gameday Shipping Cost Estimator</h2>
+        </div>
+        <form method="POST" action="{{ url_for('login') }}">
+            <div class="mb-3">
+                <label for="username" class="form-label">Username</label>
+                <input type="text" class="form-control" id="username" name="username" required>
+            </div>
+            <div class="mb-3">
+                <label for="password" class="form-label">Password</label>
+                <input type="password" class="form-control" id="password" name="password" required>
+            </div>
+            {% if error %}
+                <div class="error-message">{{ error }}</div>
+            {% endif %}
+            <button type="submit" class="btn btn-primary w-100">Login</button>
+        </form>
+    </div>
 </body>
 </html>
 '''
