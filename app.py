@@ -535,6 +535,111 @@ HTML_PAGE = '''
 <script>
 let items = [];
 
+// Keyboard navigation function for Enter key
+function setupKeyboardNavigation() {
+    // Define the tab order for UPS calculator
+    const upsTabOrder = [
+        '#vendor_zip',
+        '#receiving_zip', 
+        '#po_number',
+        '#item_name',
+        '#item_quantity',
+        '#item_cost',
+        '#add-item-btn'
+    ];
+    
+    // Define the tab order for non-UPS calculator
+    const nonUpsTabOrder = [
+        '#non_ups_vendor_zip',
+        '#non_ups_item_name',
+        '#non_ups_item_quantity',
+        '#non_ups_item_weight',
+        '#add-non-ups-item-btn',
+        '#non_ups_freight_total'
+    ];
+    
+    // Handle Enter key press
+    $(document).on('keydown', 'input, select', function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            
+            // Determine which calculator is active
+            let currentTabOrder;
+            if ($('#shipping-form').is(':visible')) {
+                currentTabOrder = upsTabOrder;
+            } else if ($('#non-ups-calc-wrap').is(':visible')) {
+                currentTabOrder = nonUpsTabOrder;
+            } else {
+                return; // No calculator active
+            }
+            
+            // Find current element in tab order
+            const currentIndex = currentTabOrder.indexOf('#' + this.id);
+            if (currentIndex === -1) return;
+            
+            // Find next element
+            let nextElement = null;
+            for (let i = currentIndex + 1; i < currentTabOrder.length; i++) {
+                const nextSelector = currentTabOrder[i];
+                const $next = $(nextSelector);
+                if ($next.length && $next.is(':visible')) {
+                    nextElement = $next;
+                    break;
+                }
+            }
+            
+            // Focus next element or trigger button click
+            if (nextElement) {
+                if (nextElement.is('button')) {
+                    nextElement.click();
+                } else {
+                    nextElement.focus();
+                    // For select2 elements, open the dropdown
+                    if (nextElement.hasClass('select2-hidden-accessible')) {
+                        nextElement.select2('open');
+                    }
+                }
+            }
+        }
+    });
+    
+    // Special handling for select2 dropdowns
+    $(document).on('select2:select', '.select2-hidden-accessible', function(e) {
+        // After selecting an item, move to next field
+        setTimeout(() => {
+            const currentId = '#' + this.id;
+            let currentTabOrder;
+            if ($('#shipping-form').is(':visible')) {
+                currentTabOrder = upsTabOrder;
+            } else if ($('#non-ups-calc-wrap').is(':visible')) {
+                currentTabOrder = nonUpsTabOrder;
+            } else {
+                return;
+            }
+            
+            const currentIndex = currentTabOrder.indexOf(currentId);
+            if (currentIndex === -1) return;
+            
+            // Find next element
+            for (let i = currentIndex + 1; i < currentTabOrder.length; i++) {
+                const nextSelector = currentTabOrder[i];
+                const $next = $(nextSelector);
+                if ($next.length && $next.is(':visible')) {
+                    if ($next.is('button')) {
+                        $next.click();
+                    } else {
+                        $next.focus();
+                        if ($next.hasClass('select2-hidden-accessible')) {
+                            $next.select2('open');
+                        }
+                    }
+                    break;
+                }
+            }
+        }, 100);
+    });
+}
+
 function updateItemList() {
     const list = $("#item-list");
     list.empty();
@@ -644,6 +749,9 @@ $(document).on("input", "#averages-search", function() {
 });
 
 $(document).ready(function() {
+    // Setup keyboard navigation
+    setupKeyboardNavigation();
+    
     $("#item_name").select2({
         placeholder: "Select an item",
         allowClear: true,
