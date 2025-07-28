@@ -67,10 +67,14 @@ def api_remove_item():
 def api_calculate():
     data = request.json or {}
     vendor_zip = data.get("vendor_zip", "")
+    # Pad vendor_zip with leading zero if only 4 digits
+    if vendor_zip and len(vendor_zip) == 4 and vendor_zip.isdigit():
+        vendor_zip = '0' + vendor_zip
     receiving_zip = data.get("receiving_zip", "")
     items = data.get("items", [])
     vendor_label = data.get("vendor_label", None)  # new: pass vendor label if available
     try:
+        # Correct order: destination (vendor_zip), origin (receiving_zip)
         zone = get_zone_from_vendor_zip(vendor_zip, receiving_zip)
         total_weight = sum(float(item.get("weight") or 0.0) * float(item.get("quantity") or 0.0) for item in items)
         total_shipping_cost = float(get_shipping_cost(zone, total_weight) or 0.0)
@@ -187,10 +191,13 @@ def api_add_non_ups_item():
             return jsonify({"error": "Quantity and freight must be positive."}), 400
         per_unit_cost = freight / quantity
         # Save with per_unit_cost in both actual and offset fields, UPS flag 'No', and weight used
-        save_shipping_history(name, per_unit_cost, per_unit_cost, quantity, vendor, is_ups='No', weight_used=weight_used)
+        success = save_shipping_history(name, per_unit_cost, per_unit_cost, quantity, vendor, is_ups='No', weight_used=weight_used)
+        if not success:
+            return jsonify({"error": "Failed to save to shipping history"}), 500
         return jsonify({"success": True})
     except Exception as e:
-        return jsonify({"error": str(e)}), 400
+        print(f"Error in api_add_non_ups_item: {e}")
+        return jsonify({"error": f"Server error: {str(e)}"}), 400
 
 @app.route("/api/items_with_weights", methods=["GET"])
 def api_items_with_weights():
@@ -422,6 +429,16 @@ HTML_PAGE = '''
             <div class="col">
                 <label for="vendor_zip" class="form-label">Vendor ZIP</label>
                   <select class="form-control" id="vendor_zip" style="width:100%"></select>
+            </div>
+            <div class="col">
+                <label for="receiving_zip" class="form-label">Receiving Warehouse</label>
+                <select class="form-control" id="receiving_zip" style="width:100%">
+                  <option value="61801">Illinois</option>
+                  <option value="47401">Indiana</option>
+                  <option value="47303">Ball State</option>
+                  <option value="60202">Northwestern</option>
+                  <option value="45701">Ohio State</option>
+                </select>
             </div>
         </div>
         <div class="row mb-3">
@@ -883,13 +900,14 @@ $(document).ready(function() {
       } else {
         totalWeight = nonUpsItems.reduce((sum, item) => sum + item.quantity, 0);
       }
+      // Build the complete HTML output first
       let html = `<h5>Freight Split</h5>`;
       html += `<div>Total freight: <b>$${freight.toFixed(2)}</b></div>`;
       html += `<div>Total shipment weight: <b>${anyWeight ? totalWeight.toFixed(2) + ' lbs' : 'N/A'}</b></div>`;
       html += `<hr style='margin: 10px 0;'/>`;
       html += `<h6>Cost Breakdown by Item</h6>`;
-      // Save each item to history
-      let saveCount = 0;
+      
+      // Build HTML for all items first
       nonUpsItems.forEach(item => {
         let itemTotalWeight = 0;
         if (anyWeight) {
@@ -905,20 +923,115 @@ $(document).ready(function() {
         html += `<div>Quantity: <b>${item.quantity}</b> | Weight per unit: <b>${item.weight ? item.weight + ' lbs' : 'N/A'}</b></div>`;
         html += `<div>Freight per unit: <span style='font-weight: bold; color: #FF552E;'>$${perUnitFreight.toFixed(2)}</span></div>`;
         html += `</div>`;
+      });
+      
+      // Show the results immediately
+      $("#non-ups-result-box").html(html).show();
+      
+      // Now save each item to history SEQUENTIALLY to avoid race conditions
+      let saveCount = 0;
+      let saveErrors = [];
+      
+      // Function to save items one by one
+      function saveItemSequentially(index) {
+        if (index >= nonUpsItems.length) {
+          // All items processed
+          if (saveErrors.length > 0) {
+            console.warn("Some items failed to save:", saveErrors);
+            alert("Warning: " + saveErrors.length + " items failed to save to history. Check console for details.");
+          }
+          loadAveragesPanel();
+          return;
+        }
+        
+        const item = nonUpsItems[index];
+        
+        // Calculate the same values for this item (for saving to history)
+        let itemTotalWeight = 0;
+        if (anyWeight) {
+          itemTotalWeight = (item.weight && !isNaN(item.weight) && item.weight > 0 ? item.weight : 1) * item.quantity;
+        } else {
+          itemTotalWeight = item.quantity;
+        }
+        const share = totalWeight ? (itemTotalWeight / totalWeight) : 0;
+        const itemFreight = share * freight;
+        
+        // Extract vendor name safely
+        let vendorName = '';
+        if (vendor_label && vendor_label.includes(' - ')) {
+          vendorName = vendor_label.split(' - ')[0].trim();
+        } else if (vendor_label) {
+          vendorName = vendor_label.trim();
+        } else {
+          vendorName = vendor_zip || 'Unknown';
+        }
+        
+        // Validate data before sending
+        if (!item.name || !item.name.trim()) {
+          const errorMsg = `Invalid item name for item ${index + 1}`;
+          saveErrors.push(errorMsg);
+          console.error(errorMsg);
+          saveItemSequentially(index + 1); // Move to next item
+          return;
+        }
+        
+        if (!item.quantity || item.quantity <= 0) {
+          const errorMsg = `Invalid quantity for item ${item.name}`;
+          saveErrors.push(errorMsg);
+          console.error(errorMsg);
+          saveItemSequentially(index + 1); // Move to next item
+          return;
+        }
+        
+        if (!itemFreight || itemFreight <= 0) {
+          const errorMsg = `Invalid freight cost for item ${item.name}`;
+          saveErrors.push(errorMsg);
+          console.error(errorMsg);
+          saveItemSequentially(index + 1); // Move to next item
+          return;
+        }
+        
+        // Ensure weight_used is a valid number or null
+        let weightUsed = item.weight;
+        if (weightUsed !== null && weightUsed !== undefined) {
+          if (isNaN(weightUsed) || weightUsed < 0) {
+            weightUsed = null;
+          }
+        }
+        
+        // Log the data being sent for debugging
+        const saveData = { name: item.name.trim(), quantity: item.quantity, freight: itemFreight, vendor: vendorName, weight_used: weightUsed };
+        console.log(`Saving item to history:`, saveData);
+        
         // Save to history
         $.ajax({
           url: "/api/add_non_ups_item",
           method: "POST",
           contentType: "application/json",
-          data: JSON.stringify({ name: item.name, quantity: item.quantity, freight: itemFreight, vendor: vendor_label.split(' - ')[0], weight_used: item.weight }),
-          complete: function() {
-            saveCount++;
-            if (saveCount === nonUpsItems.length) {
-              loadAveragesPanel();
+          timeout: 10000, // 10 second timeout
+          data: JSON.stringify(saveData),
+          success: function(data) {
+            console.log(`Successfully saved ${item.name} to history`);
+            saveItemSequentially(index + 1); // Move to next item
+          },
+          error: function(xhr, status, error) {
+            let errorMsg;
+            if (status === 'timeout') {
+              errorMsg = `Timeout saving ${item.name} to history`;
+            } else if (xhr.responseJSON && xhr.responseJSON.error) {
+              errorMsg = `Failed to save ${item.name}: ${xhr.responseJSON.error}`;
+            } else {
+              errorMsg = `Failed to save ${item.name}: ${error} (Status: ${status})`;
             }
+            saveErrors.push(errorMsg);
+            console.error(errorMsg);
+            saveItemSequentially(index + 1); // Move to next item even on error
           }
         });
-      });
+      }
+      
+      // Start the sequential saving process
+      saveItemSequentially(0);
       $("#non-ups-result-box").html(html).show();
     });
     // Populate vendor dropdown for non UPS calc
@@ -1007,7 +1120,7 @@ $("#shipping-form").submit(function(e) {
     e.preventDefault();
     const vendor_zip = $("#vendor_zip").val() ? $("#vendor_zip").val().trim() : "";
     const vendor_label = $("#vendor_zip option:selected").text();
-    const receiving_zip = "61801";
+    const receiving_zip = $("#receiving_zip").val() ? $("#receiving_zip").val().trim() : "";
     if (!vendor_zip || items.length === 0) {
         alert("Please enter a vendor ZIP and at least one item.");
         return;
@@ -1019,12 +1132,11 @@ $("#shipping-form").submit(function(e) {
         data: JSON.stringify({ vendor_zip, receiving_zip, items, vendor_label }),
         success: function(data) {
             let html = ``;
-            html += ``;
-            html += ``;
-            html += ``;
             html += `<div style="background: #f8f9fa; padding: 15px; border-radius: 8px; border-left: 4px solid #FF552E; margin: 15px 0;">`;
             html += `<div style="font-size: 1.2em; font-weight: bold; color: #13294B; margin-bottom: 10px;">TOTAL SHIPPING COSTS:</div>`;
             html += `<div style="font-size: 1.1em; margin-bottom: 8px;">Estimated Total Shipping Cost: <span style="font-weight: bold; color: #FF552E; font-size: 1.2em;">$${data.offset_shipping_cost.toFixed(2)}</span></div>`;
+            html += `<div style="font-size: 1.05em; margin-bottom: 4px;">Total Weight: <span style="font-weight: bold; color: #13294B;">${data.total_weight.toFixed(2)} lbs</span></div>`;
+            html += `<div style="font-size: 1.05em; margin-bottom: 4px;">Zone: <span style="font-weight: bold; color: #13294B;">${data.zone}</span></div>`;
             html += `</div>`;
             html += `<hr style="border-top: 2px solid #13294B; margin: 15px 0;"/>`;
             html += `<h6 style="color: #13294B; font-weight: bold;">Cost Breakdown by Item</h6>`;
@@ -1041,6 +1153,13 @@ $("#shipping-form").submit(function(e) {
             });
             $("#result-box").html(html).show();
             loadAveragesPanel(); // update averages after calculation
+            // Clear items after calculation (robust)
+            while (items.length > 0) { items.pop(); }
+            updateItemList();
+            // Clear item selection fields
+            $("#item_name").val(null).trigger('change');
+            $("#item_quantity").val("");
+            $("#item_cost").val("");
         },
         error: function(xhr) {
             alert("Error calculating shipping: " + xhr.responseJSON.error);
