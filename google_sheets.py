@@ -125,9 +125,9 @@ def remove_item_from_sheet(name):
         print(f"Error removing item: {e}")
         raise e
 
-def save_shipping_history(item_name, per_unit_cost, per_unit_cost_offset, quantity=1, vendor=None, is_ups='Yes', weight_used='', po_number=''):
+def save_shipping_history(item_name, per_unit_cost, per_unit_cost_offset, quantity=1, vendor=None, is_ups='Yes', weight_used='', po_number='', receiving_location=''):
     """
-    Save shipping history to Google Sheets, including quantity, vendor, UPS flag, weight used, and PO number.
+    Save shipping history to Google Sheets, including quantity, vendor, UPS flag, weight used, PO number, and receiving location.
     """
     try:
         client = get_google_sheets_client()
@@ -137,8 +137,8 @@ def save_shipping_history(item_name, per_unit_cost, per_unit_cost_offset, quanti
         sheet = client.open_by_key(sheet_id).sheet1
         # Create timestamp
         timestamp = datetime.now().isoformat(sep=' ', timespec='seconds')
-        # Add new row (add vendor, UPS, weight used, and PO as last columns)
-        row = [item_name, per_unit_cost, per_unit_cost_offset, timestamp, quantity, vendor or "", is_ups, weight_used, po_number]
+        # Add new row (add vendor, UPS, weight used, PO, and receiving location as last columns)
+        row = [item_name, per_unit_cost, per_unit_cost_offset, timestamp, quantity, vendor or "", is_ups, weight_used, po_number, receiving_location]
         sheet.append_row(row)
         return True
     except Exception as e:
@@ -148,7 +148,7 @@ def save_shipping_history(item_name, per_unit_cost, per_unit_cost_offset, quanti
 def get_shipping_history():
     """
     Get all shipping history from Google Sheets.
-    Returns list of dictionaries with history data, including vendor and UPS.
+    Returns list of dictionaries with history data, including vendor, UPS, and receiving location.
     """
     try:
         client = get_google_sheets_client()
@@ -170,7 +170,8 @@ def get_shipping_history():
                     'Vendor': record.get('Vendor', ''),
                     'UPS': record.get('UPS', ''),
                     'Weight Used': record.get('Weight Used', ''),
-                    'PO': record.get('PO', '')
+                    'PO': record.get('PO', ''),
+                    'Receiving': record.get('Receiving', '')
                 })
         return history
     except Exception as e:

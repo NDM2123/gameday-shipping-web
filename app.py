@@ -119,6 +119,18 @@ def api_calculate():
     items = data.get("items", [])
     vendor_label = data.get("vendor_label", None)  # new: pass vendor label if available
     po_number = data.get("po_number", "").strip()  # new: get PO number
+    
+    # Map receiving zip codes to location names
+    receiving_locations = {
+        "61801": "Illinois",
+        "47401": "Indiana", 
+        "47303": "Ball State",
+        "60202": "Northwestern",
+        "45701": "Ohio",
+        "50011": "Iowa State"
+    }
+    receiving_location = receiving_locations.get(receiving_zip, receiving_zip)
+    
     try:
         # Correct order: destination (vendor_zip), origin (receiving_zip)
         zone = get_zone_from_vendor_zip(vendor_zip, receiving_zip)
@@ -145,8 +157,8 @@ def api_calculate():
             retail_50 = (cost + offset_cost_per_unit) / 0.5 if quantity else 0.0
             retail_55 = (cost + offset_cost_per_unit) / 0.45 if quantity else 0.0
             retail_60 = (cost + offset_cost_per_unit) / 0.4 if quantity else 0.0
-            # Append to history (now with vendor, UPS flag, weight used, and PO number)
-            save_shipping_history(item["name"], offset_cost_per_unit, offset_cost_per_unit, quantity, vendor, is_ups='Yes', weight_used=weight, po_number=po_number)
+            # Append to history (now with vendor, UPS flag, weight used, PO number, and receiving location)
+            save_shipping_history(item["name"], offset_cost_per_unit, offset_cost_per_unit, quantity, vendor, is_ups='Yes', weight_used=weight, po_number=po_number, receiving_location=receiving_location)
             item_result = {
                 "name": item["name"],
                 "quantity": int(quantity),
@@ -236,8 +248,8 @@ def api_add_non_ups_item():
         if quantity <= 0 or freight <= 0:
             return jsonify({"error": "Quantity and freight must be positive."}), 400
         per_unit_cost = freight / quantity
-        # Save with per_unit_cost in both actual and offset fields, UPS flag 'No', and weight used
-        success = save_shipping_history(name, per_unit_cost, per_unit_cost, quantity, vendor, is_ups='No', weight_used=weight_used)
+        # Save with per_unit_cost in both actual and offset fields, UPS flag 'No', weight used, and empty receiving location
+        success = save_shipping_history(name, per_unit_cost, per_unit_cost, quantity, vendor, is_ups='No', weight_used=weight_used, receiving_location='')
         if not success:
             return jsonify({"error": "Failed to save to shipping history"}), 500
         return jsonify({"success": True})
@@ -486,7 +498,8 @@ HTML_PAGE = '''
                   <option value="47401">Indiana</option>
                   <option value="47303">Ball State</option>
                   <option value="60202">Northwestern</option>
-                  <option value="45701">Ohio State</option>
+                  <option value="45701">Ohio</option>
+                  <option value="50011">Iowa State</option>
                 </select>
             </div>
             <div class="col">
