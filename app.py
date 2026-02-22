@@ -127,7 +127,7 @@ def api_calculate():
         "47303": "Ball State",
         "60202": "Northwestern",
         "45701": "Ohio",
-        "50011": "Iowa State"
+        "50010": "Iowa State"
     }
     receiving_location = receiving_locations.get(receiving_zip, receiving_zip)
     
