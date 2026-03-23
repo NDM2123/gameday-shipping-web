@@ -499,7 +499,7 @@ HTML_PAGE = '''
                   <option value="47303">Ball State</option>
                   <option value="60202">Northwestern</option>
                   <option value="45701">Ohio</option>
-                  <option value="50011">Iowa State</option>
+                  <option value="50010">Iowa State</option>
                 </select>
             </div>
             <div class="col">
